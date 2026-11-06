@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production and build outputs
+dist/
+build/
+.expo/
+web-build/
+.cache/
+
+# Large binaries and app installer packages
+*.apk
+*.aab
+*.ipa
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+!.env.example
+
+# Native Android Build Artifacts
+**/android/.gradle/
+**/android/app/build/
+**/android/build/
+**/android/local.properties
+**/android/.cxx/
+**/android/*.iml
+**/android/.idea/
+
+# Local database / test store
+backend/data/*.json
+!backend/data/.gitkeep
+
+# System & IDE files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log

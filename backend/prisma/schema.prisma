@@ -1,0 +1,182 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  COMPLETED
+  ARCHIVED
+}
+
+model User {
+  id           String       @id @default(uuid())
+  email        String       @unique
+  passwordHash String?      // Optional for Google OAuth accounts
+  displayName  String
+  avatarUrl    String?
+  googleId     String?      @unique
+  fcmToken     String?      // Firebase Cloud Messaging device token
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  tasks        Task[]
+  categories   Category[]
+  syncLogs     SyncLog[]
+  teamMembers  TeamMember[]
+  ownedRooms   Room[]       @relation("RoomOwner")
+  roomMembers  RoomMember[]
+
+  @@map("users")
+}
+
+model Room {
+  id         String       @id @default(uuid())
+  name       String
+  inviteCode String       @unique // e.g. "TF-7K9A2"
+  isPrivate  Boolean      @default(true)
+  ownerId    String
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  owner      User         @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members    RoomMember[]
+  tasks      Task[]
+
+  @@index([inviteCode])
+  @@map("rooms")
+}
+
+model RoomMember {
+  id        String   @id @default(uuid())
+  roomId    String
+  userId    String
+  role      String   @default("MEMBER") // "OWNER", "ADMIN", "MEMBER"
+  joinedAt  DateTime @default(now())
+
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@map("room_members")
+}
+
+model Team {
+  id        String       @id @default(uuid())
+  name      String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  members   TeamMember[]
+  tasks     Task[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String   @id @default(uuid())
+  teamId    String
+  userId    String
+  role      String   @default("MEMBER") // "OWNER", "ADMIN", "MEMBER"
+  createdAt DateTime @default(now())
+
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+model Category {
+  id        String    @id @default(uuid())
+  userId    String
+  name      String
+  color     String    @default("#4F46E5")
+  icon      String    @default("folder")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+
+  @@map("categories")
+}
+
+model Task {
+  id               String      @id @default(uuid())
+  userId           String
+  teamId           String?     // Associated team workspace
+  roomId           String?     // Associated private room
+  categoryId       String?
+  title            String
+  description      String?     @db.Text
+  priority         Priority    @default(MEDIUM)
+  status           TaskStatus  @default(TODO)
+  assignee         String?     // Member name or ID
+  dueDate          DateTime?
+  reminderAt       DateTime?
+  isCompleted      Boolean     @default(false)
+  version          Int         @default(1)
+  logicalTimestamp Int         @default(1) // Row-level logical timestamp for bidirectional conflict resolution
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  deletedAt        DateTime?
+
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team             Team?       @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  room             Room?       @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  category         Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  subtasks         Subtask[]
+
+  @@index([userId, updatedAt])
+  @@index([teamId, updatedAt])
+  @@index([roomId, updatedAt])
+  @@index([userId, isCompleted])
+  @@map("tasks")
+}
+
+model Subtask {
+  id          String    @id @default(uuid())
+  taskId      String
+  title       String
+  isCompleted Boolean   @default(false)
+  orderIndex  Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("subtasks")
+}
+
+model SyncLog {
+  id               String   @id @default(uuid())
+  userId           String
+  entityType       String   // "TASK", "CATEGORY", "SUBTASK"
+  entityId         String
+  action           String   // "CREATE", "UPDATE", "DELETE"
+  payload          Json
+  version          Int      @default(1)
+  logicalTimestamp Int      @default(1)
+  createdAt        DateTime @default(now())
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("sync_logs")
+}

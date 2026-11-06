@@ -1,0 +1,13 @@
+node_modules/
+.expo/
+dist/
+npm-debug.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+build_*.txt
+eas_full_log.txt
+decompressed_*.txt

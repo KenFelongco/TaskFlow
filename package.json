@@ -1,0 +1,13 @@
+{
+  "name": "taskflow-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "npm run build --prefix backend && npm run build --prefix mobile",
+    "backend": "npm run dev --prefix backend",
+    "mobile": "npm run start --prefix mobile",
+    "web": "npm run web --prefix mobile",
+    "build:backend": "npm run build --prefix backend",
+    "build:mobile": "npm run build --prefix mobile"
+  }
+}
