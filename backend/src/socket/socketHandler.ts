@@ -2,6 +2,7 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
+import { addOrUpdateRoomTask, deleteRoomTask } from '../controllers/roomController';
 
 export interface RoomMember {
   id: string;
@@ -116,18 +117,27 @@ export function initSocketIO(httpServer: HTTPServer): SocketIOServer {
     socket.on('room:task_created', (data: { roomCode: string; task: any }) => {
       const roomCode = (data.roomCode || 'SPRINT-2025').trim().toUpperCase();
       console.log(`📢 Real-time Task Created in Room [${roomCode}]: ${data.task?.title}`);
+      if (data.task) {
+        addOrUpdateRoomTask(roomCode, data.task);
+      }
       socket.to(`room:${roomCode}`).emit('room:task_created', data.task);
     });
 
     socket.on('room:task_updated', (data: { roomCode: string; task: any }) => {
       const roomCode = (data.roomCode || 'SPRINT-2025').trim().toUpperCase();
       console.log(`📢 Real-time Task Updated in Room [${roomCode}]: ${data.task?.id}`);
+      if (data.task) {
+        addOrUpdateRoomTask(roomCode, data.task);
+      }
       socket.to(`room:${roomCode}`).emit('room:task_updated', data.task);
     });
 
     socket.on('room:task_deleted', (data: { roomCode: string; taskId: string }) => {
       const roomCode = (data.roomCode || 'SPRINT-2025').trim().toUpperCase();
       console.log(`📢 Real-time Task Deleted in Room [${roomCode}]: ${data.taskId}`);
+      if (data.taskId) {
+        deleteRoomTask(roomCode, data.taskId);
+      }
       socket.to(`room:${roomCode}`).emit('room:task_deleted', { id: data.taskId });
     });
 

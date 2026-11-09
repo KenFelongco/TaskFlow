@@ -25,6 +25,7 @@ export interface InMemoryRoom {
     role: string;
     joinedAt: string;
   }>;
+  tasks?: Array<any>;
 }
 
 const memoryRooms = new Map<string, InMemoryRoom>();
@@ -75,6 +76,36 @@ function saveRoomsToDisk() {
 
 // Load persisted rooms on module initialization
 loadRoomsFromDisk();
+
+/**
+ * Add or update a task belonging to a shared room.
+ */
+export function addOrUpdateRoomTask(roomCode: string, task: any): void {
+  const norm = roomCode.trim().toUpperCase();
+  const room = memoryRooms.get(norm) || memoryRooms.get(norm.startsWith('TF-') ? norm : `TF-${norm}`);
+  if (room) {
+    if (!room.tasks) room.tasks = [];
+    const idx = room.tasks.findIndex((t: any) => t.id === task.id);
+    if (idx !== -1) {
+      room.tasks[idx] = { ...room.tasks[idx], ...task, updatedAt: new Date().toISOString() };
+    } else {
+      room.tasks.unshift({ ...task, roomCode: room.inviteCode });
+    }
+    saveRoomsToDisk();
+  }
+}
+
+/**
+ * Delete a task from a shared room.
+ */
+export function deleteRoomTask(roomCode: string, taskId: string): void {
+  const norm = roomCode.trim().toUpperCase();
+  const room = memoryRooms.get(norm) || memoryRooms.get(norm.startsWith('TF-') ? norm : `TF-${norm}`);
+  if (room && room.tasks) {
+    room.tasks = room.tasks.filter((t: any) => t.id !== taskId);
+    saveRoomsToDisk();
+  }
+}
 
 // Generate unique 5-char alphanumeric code (e.g. TF-7K9A2)
 export function generateUniqueInviteCode(): string {
@@ -510,5 +541,51 @@ export async function getRoomMembers(req: AuthenticatedRequest, res: Response): 
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to fetch members' });
+  }
+}
+
+/**
+ * GET /api/rooms/:roomCode/tasks
+ * Get all shared tasks created in this private room/workspace.
+ */
+export async function getRoomTasks(req: AuthenticatedRequest, res: Response): Promise<void> {
+  try {
+    const rawCode = req.params.roomCode.trim().toUpperCase();
+    const roomCode = rawCode.startsWith('TF-') ? rawCode : `TF-${rawCode}`;
+    const room = memoryRooms.get(roomCode) || memoryRooms.get(rawCode);
+
+    if (!room) {
+      res.json({ roomCode, tasks: [] });
+      return;
+    }
+
+    res.json({
+      roomCode: room.inviteCode,
+      tasks: room.tasks || [],
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to fetch room tasks' });
+  }
+}
+
+/**
+ * POST /api/rooms/:roomCode/tasks
+ * Save or update a shared task in this private room.
+ */
+export async function saveRoomTask(req: AuthenticatedRequest, res: Response): Promise<void> {
+  try {
+    const rawCode = req.params.roomCode.trim().toUpperCase();
+    const roomCode = rawCode.startsWith('TF-') ? rawCode : `TF-${rawCode}`;
+    const task = req.body;
+
+    if (!task || !task.id) {
+      res.status(400).json({ error: 'Valid task object with id is required' });
+      return;
+    }
+
+    addOrUpdateRoomTask(roomCode, task);
+    res.json({ success: true, task });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to save room task' });
   }
 }

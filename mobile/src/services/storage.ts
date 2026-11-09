@@ -94,6 +94,26 @@ class LocalStorageEngine {
     this.setItem(this.getScopedKey(STORAGE_KEYS.TASKS), JSON.stringify(tasks));
   }
 
+  // --- Shared Room Tasks API (Persistent across accounts for the same room) ---
+  getRoomTasks(roomCode: string): Task[] {
+    if (!roomCode) return [];
+    const key = `taskflow_room_tasks_${roomCode.trim().toUpperCase()}`;
+    const raw = this.getItem(key);
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  saveRoomTasks(roomCode: string, tasks: Task[]): void {
+    if (!roomCode) return;
+    const key = `taskflow_room_tasks_${roomCode.trim().toUpperCase()}`;
+    this.setItem(key, JSON.stringify(tasks));
+  }
+
   // --- Categories API (Isolated per user account) ---
   getCategories(): Category[] {
     const raw = this.getItem(this.getScopedKey(STORAGE_KEYS.CATEGORIES));

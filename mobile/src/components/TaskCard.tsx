@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { colors } from '../theme/colors';
-import { Task } from '../types';
+import { Task, TaskStatus } from '../types';
 
 interface TaskCardProps {
   task: Task;
@@ -9,6 +9,7 @@ interface TaskCardProps {
   onEditPress: (task: Task) => void;
   onDeletePress: (id: string) => void;
   onToggleSubtask: (taskId: string, subtaskId: string) => void;
+  onStatusChange?: (taskId: string, newStatus: TaskStatus) => void;
   showChevron?: boolean;
 }
 
@@ -18,11 +19,36 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onEditPress,
   onDeletePress,
   onToggleSubtask,
+  onStatusChange,
   showChevron = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const priorityStyle = colors.priority[task.priority] || colors.priority.MEDIUM;
+
+  const cycleStatus = () => {
+    if (!onStatusChange) return;
+    const current = task.status || (task.isCompleted ? 'COMPLETED' : 'TODO');
+    if (current === 'TODO') {
+      onStatusChange(task.id, 'IN_PROGRESS');
+    } else if (current === 'IN_PROGRESS') {
+      onStatusChange(task.id, 'COMPLETED');
+    } else {
+      onStatusChange(task.id, 'TODO');
+    }
+  };
+
+  const getStatusBadge = () => {
+    const s = task.status || (task.isCompleted ? 'COMPLETED' : 'TODO');
+    if (s === 'IN_PROGRESS') {
+      return { label: '⏳ In Progress', bg: '#FEF3C7', color: '#D97706' };
+    }
+    if (s === 'COMPLETED' || task.isCompleted) {
+      return { label: '✓ Done', bg: '#D1FAE5', color: '#059669' };
+    }
+    return { label: '📋 To Do', bg: '#EFF6FF', color: '#2563EB' };
+  };
+  const statusBadge = getStatusBadge();
 
   const completedSubtasks = task.subtasks.filter((st) => st.isCompleted).length;
   const totalSubtasks = task.subtasks.length;
@@ -67,6 +93,18 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               {priorityStyle.label}
             </Text>
           </View>
+
+          {/* Status Badge (Trello-style cycle button) */}
+          <TouchableOpacity
+            style={[styles.statusPill, { backgroundColor: statusBadge.bg }]}
+            onPress={cycleStatus}
+            disabled={!onStatusChange}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.statusText, { color: statusBadge.color }]}>
+              {statusBadge.label}
+            </Text>
+          </TouchableOpacity>
 
           {/* Category Pill */}
           {task.categoryName && (
@@ -231,6 +269,17 @@ const styles = StyleSheet.create({
   },
   priorityText: {
     fontSize: 11,
+    fontWeight: '700',
+  },
+  statusPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  statusText: {
+    fontSize: 10,
     fontWeight: '700',
   },
   categoryPill: {

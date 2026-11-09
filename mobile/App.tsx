@@ -13,7 +13,7 @@ import {
 
 LogBox.ignoreAllLogs();
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Task, Category, SyncMutation, TeamMember } from './src/types';
+import { Task, TaskStatus, Category, SyncMutation, TeamMember } from './src/types';
 import { localDB } from './src/services/storage';
 import { syncEngine } from './src/services/syncEngine';
 import { socketService } from './src/services/socketService';
@@ -99,6 +99,7 @@ function MainTaskFlowApp() {
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<'ALL' | 'TODO' | 'IN_PROGRESS' | 'COMPLETED'>('ALL');
 
   const [isQueueModalOpen, setIsQueueModalOpen] = useState(false);
   const [networkStatus, setNetworkStatus] = useState(syncEngine.status);
@@ -172,6 +173,7 @@ function MainTaskFlowApp() {
               });
             }
             fetchRoomMembers(activeCode);
+            fetchRoomTasks(activeCode);
             return;
           }
         }
@@ -193,6 +195,7 @@ function MainTaskFlowApp() {
       setCurrentRoomName(activeRoom.name);
       localDB.saveActiveRoomCode(activeCode);
       fetchRoomMembers(activeCode);
+      fetchRoomTasks(activeCode);
       return;
     }
 
@@ -290,6 +293,48 @@ function MainTaskFlowApp() {
     }
   };
 
+  const fetchRoomTasks = async (roomCode: string) => {
+    if (!roomCode) return;
+    try {
+      const token = authService.authToken;
+      const res = await fetch(`${API_URL}/rooms/${roomCode}/tasks`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.tasks && Array.isArray(data.tasks)) {
+          const currentTasks = localDB.getTasks();
+          const taskMap = new Map<string, Task>();
+          currentTasks.forEach((t) => taskMap.set(t.id, t));
+          data.tasks.forEach((t: Task) => {
+            const existing = taskMap.get(t.id);
+            taskMap.set(t.id, { ...(existing || {}), ...t, roomCode });
+          });
+          const merged = Array.from(taskMap.values());
+          localDB.saveTasks(merged);
+          localDB.saveRoomTasks(roomCode, data.tasks);
+          refreshLocalState();
+          return;
+        }
+      }
+    } catch (e) {
+      // offline fallback
+    }
+
+    const offlineRoomTasks = localDB.getRoomTasks(roomCode);
+    if (offlineRoomTasks.length > 0) {
+      const currentTasks = localDB.getTasks();
+      const taskMap = new Map<string, Task>();
+      currentTasks.forEach((t) => taskMap.set(t.id, t));
+      offlineRoomTasks.forEach((t) => taskMap.set(t.id, t));
+      const merged = Array.from(taskMap.values());
+      localDB.saveTasks(merged);
+      refreshLocalState();
+    }
+  };
+
   useEffect(() => {
     // 1. Scope storage to current user (or guest)
     localDB.setUserScope(currentUser?.id || null);
@@ -311,6 +356,7 @@ function MainTaskFlowApp() {
     fetchMyRooms(activeCode);
     if (activeCode) {
       fetchRoomMembers(activeCode);
+      fetchRoomTasks(activeCode);
     } else {
       setOnlineMembers(
         currentUser
@@ -368,6 +414,13 @@ function MainTaskFlowApp() {
       if (!currentTasks.some((t) => t.id === newTask.id)) {
         currentTasks.unshift(newTask);
         localDB.saveTasks(currentTasks);
+        if (newTask.roomCode) {
+          const roomTasks = localDB.getRoomTasks(newTask.roomCode);
+          if (!roomTasks.some((t) => t.id === newTask.id)) {
+            roomTasks.unshift(newTask);
+            localDB.saveRoomTasks(newTask.roomCode, roomTasks);
+          }
+        }
         refreshLocalState();
       }
     });
@@ -379,6 +432,13 @@ function MainTaskFlowApp() {
       if (idx !== -1) {
         currentTasks[idx] = updatedTask;
         localDB.saveTasks(currentTasks);
+        if (updatedTask.roomCode) {
+          const roomTasks = localDB.getRoomTasks(updatedTask.roomCode);
+          const rIdx = roomTasks.findIndex((t) => t.id === updatedTask.id);
+          if (rIdx !== -1) roomTasks[rIdx] = updatedTask;
+          else roomTasks.unshift(updatedTask);
+          localDB.saveRoomTasks(updatedTask.roomCode, roomTasks);
+        }
         refreshLocalState();
       }
     });
@@ -387,6 +447,10 @@ function MainTaskFlowApp() {
       showToast(`🗑️ Task deleted by teammate`);
       const currentTasks = localDB.getTasks().filter((t) => t.id !== data.id);
       localDB.saveTasks(currentTasks);
+      if (currentRoomCode) {
+        const roomTasks = localDB.getRoomTasks(currentRoomCode).filter((t) => t.id !== data.id);
+        localDB.saveRoomTasks(currentRoomCode, roomTasks);
+      }
       refreshLocalState();
     });
 
@@ -435,6 +499,7 @@ function MainTaskFlowApp() {
     showToast(`Entered Private Room [${formatted}]`);
     fetchMyRooms(formatted);
     fetchRoomMembers(formatted);
+    fetchRoomTasks(formatted);
   };
 
   // Filter tasks based on current private room code, search, status, and team member
@@ -477,9 +542,15 @@ function MainTaskFlowApp() {
       if (selectedCategory && t.categoryId !== selectedCategory) return false;
       if (selectedMember && t.assignee !== selectedMember) return false;
 
+      // Status Column Filter for Team Board View (Trello style)
+      if (currentScreen === 'board' && selectedStatus !== 'ALL') {
+        const tStatus = t.status || (t.isCompleted ? 'COMPLETED' : 'TODO');
+        if (tStatus !== selectedStatus) return false;
+      }
+
       return true;
     });
-  }, [tasks, currentRoomCode, searchQuery, activeFilter, selectedCategory, selectedMember]);
+  }, [tasks, currentRoomCode, searchQuery, activeFilter, selectedCategory, selectedMember, selectedStatus, currentScreen]);
 
   const stats = useMemo(() => {
     const roomTasks = tasks.filter((t) => (t.roomCode || currentRoomCode) === currentRoomCode);
@@ -489,6 +560,22 @@ function MainTaskFlowApp() {
     const urgent = roomTasks.filter((t) => (t.priority === 'URGENT' || t.priority === 'HIGH') && !t.isCompleted).length;
     return { total, completed, pending, urgent };
   }, [tasks, currentRoomCode]);
+
+  const boardStatusCounts = useMemo(() => {
+    const base = tasks.filter((t) => {
+      const c = (currentRoomCode || '').trim().toUpperCase();
+      const tc = (t.roomCode || '').trim().toUpperCase();
+      if (tc && tc !== c) return false;
+      if (selectedMember && t.assignee !== selectedMember) return false;
+      return true;
+    });
+    return {
+      all: base.length,
+      todo: base.filter((t) => (t.status || 'TODO') === 'TODO' && !t.isCompleted).length,
+      inProgress: base.filter((t) => t.status === 'IN_PROGRESS' && !t.isCompleted).length,
+      completed: base.filter((t) => t.status === 'COMPLETED' || t.isCompleted).length,
+    };
+  }, [tasks, currentRoomCode, selectedMember]);
 
   const handleToggleOffline = () => {
     const isNowOffline = syncEngine.toggleSimulatedOffline();
@@ -510,14 +597,50 @@ function MainTaskFlowApp() {
       ...taskData,
       roomCode: currentRoomCode,
     };
+    let saved: any = null;
     if (editingTask) {
-      await syncEngine.updateTask(editingTask.id, dataWithRoom);
+      saved = await syncEngine.updateTask(editingTask.id, dataWithRoom);
       showToast('Task updated and broadcast to team.');
       setEditingTask(null);
     } else {
-      await syncEngine.createTask(dataWithRoom);
+      saved = await syncEngine.createTask(dataWithRoom);
       showToast(`Task created in Room [${currentRoomCode}]`);
     }
+
+    if (saved && currentRoomCode) {
+      const roomTasks = localDB.getRoomTasks(currentRoomCode);
+      const idx = roomTasks.findIndex((t) => t.id === saved.id);
+      if (idx !== -1) roomTasks[idx] = saved;
+      else roomTasks.unshift(saved);
+      localDB.saveRoomTasks(currentRoomCode, roomTasks);
+
+      // Persist to server room store
+      try {
+        const token = authService.authToken;
+        fetch(`${API_URL}/rooms/${currentRoomCode}/tasks`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(saved),
+        }).catch(() => {});
+      } catch {}
+    }
+    refreshLocalState();
+    setCurrentScreen('home');
+  };
+
+  const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
+    const isCompleted = newStatus === 'COMPLETED';
+    const updated = await syncEngine.updateTask(taskId, { status: newStatus, isCompleted });
+    if (updated && currentRoomCode) {
+      const roomTasks = localDB.getRoomTasks(currentRoomCode);
+      const idx = roomTasks.findIndex((t) => t.id === taskId);
+      if (idx !== -1) roomTasks[idx] = updated;
+      localDB.saveRoomTasks(currentRoomCode, roomTasks);
+    }
+    showToast(`Task moved to ${newStatus.replace('_', ' ')}`);
   };
 
   const handleToggleComplete = async (id: string) => {
@@ -757,6 +880,30 @@ function MainTaskFlowApp() {
                   })}
                 </ScrollView>
 
+                {/* Trello Kanban Status Column Switcher */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.kanbanScroll}>
+                  {[
+                    { key: 'ALL', label: `All (${boardStatusCounts.all})` },
+                    { key: 'TODO', label: `📋 To Do (${boardStatusCounts.todo})` },
+                    { key: 'IN_PROGRESS', label: `⏳ In Progress (${boardStatusCounts.inProgress})` },
+                    { key: 'COMPLETED', label: `✅ Done (${boardStatusCounts.completed})` },
+                  ].map((st) => {
+                    const isSelected = selectedStatus === st.key;
+                    return (
+                      <TouchableOpacity
+                        key={st.key}
+                        style={[styles.kanbanChip, isSelected && styles.kanbanChipActive]}
+                        onPress={() => setSelectedStatus(st.key as any)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.kanbanChipText, isSelected && styles.kanbanChipTextActive]}>
+                          {st.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
                 <View style={styles.sectionHeaderRow}>
                   <Text style={styles.sectionTitle}>
                     {selectedMember ? `Tasks for ${selectedMember}` : 'Team Tasks'}
@@ -775,6 +922,7 @@ function MainTaskFlowApp() {
                     }}
                     onDeletePress={handleDeleteTask}
                     onToggleSubtask={handleToggleSubtask}
+                    onStatusChange={handleStatusChange}
                   />
                 ))}
               </View>
@@ -821,6 +969,7 @@ function MainTaskFlowApp() {
                         }}
                         onDeletePress={handleDeleteTask}
                         onToggleSubtask={handleToggleSubtask}
+                        onStatusChange={handleStatusChange}
                         showChevron={true}
                       />
                     ))}
@@ -891,6 +1040,7 @@ function MainTaskFlowApp() {
                       }}
                       onDeletePress={handleDeleteTask}
                       onToggleSubtask={handleToggleSubtask}
+                      onStatusChange={handleStatusChange}
                     />
                   ))
                 )}
@@ -1200,6 +1350,33 @@ const styles = StyleSheet.create({
   memberChipTextActive: {
     color: '#FFF',
     fontWeight: '700',
+  },
+  kanbanScroll: {
+    paddingHorizontal: 20,
+    gap: 8,
+    paddingTop: 4,
+    paddingBottom: 10,
+  },
+  kanbanChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  kanbanChipActive: {
+    backgroundColor: '#3B82F6',
+    borderColor: '#3B82F6',
+  },
+  kanbanChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  kanbanChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
   emptyWrap: {
     alignItems: 'center',
