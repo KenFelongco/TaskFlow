@@ -109,4 +109,4 @@ Open the **⚡ Benchmarks** tab inside the application to run live diagnostics:
 2. **Network Dropout Stress Test**: Programmatically simulates an abrupt wireless disconnect, writes 3 tasks to the local SQLite mutation queue, checks off items, reconnects, flushes delta sync, and proves 100% zero data loss.
 3. **Delta Protocol Packet Inspector**: Inspects payload bytes (e.g. 184 B delta vs 12.5 KB full state fetch).
 4. **Firebase Cloud Messaging (FCM)**: Dispatches high-priority push notifications for urgent milestones with in-app banner feedback.
-5. **Team Workspace**: Switch between *My Tasks* and *Team Board* to assign tasks across team members (`Alex Rivera`, `Sarah Chen`, `You`).
+5. **Shared Workspaces & Trello-Style Kanban Board**: Create or join private rooms with unique invite codes (e.g. `TF-XKDE6`), assign tasks to any room member, toggle Kanban statuses (`To Do`, `In Progress`, `Done`), and collaborate in real time over WebSockets with full offline resilience.
